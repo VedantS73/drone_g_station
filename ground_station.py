@@ -6,6 +6,7 @@ import paramiko
 from collections.abc import MutableMapping
 # from dronekit import connect, VehicleMode
 from dronekit import connect as dronekit_connect
+from dronekit import VehicleMode
 import cv2
 import numpy as np
 import threading
@@ -67,8 +68,8 @@ class DroneController:
                 print("Waiting for vehicle initialization...")
                 print(f"GPS fix type: {self.vehicle.gps_0.fix_type}")
                 print(f"Number of satellites: {self.vehicle.gps_0.satellites_visible}")
-                print(f"Battery voltage: {self.vehicle.battery.voltage}")
-                print(f"Battery level: {self.vehicle.battery.level}")
+                # print(f"Battery voltage: {self.vehicle.battery.voltage}")
+                # print(f"Battery level: {self.vehicle.battery.level}")
                 print('----------------------------EOF---------------------------------')
 
                 time.sleep(1)
@@ -210,6 +211,48 @@ def move():
     speed = request.json.get('speed', 1)  # Default 2 m/s
     success = drone_controller.move(direction, speed)
     return jsonify({'success': success})
+
+@app.route('/set_altitude', methods=['POST'])
+def set_altitude():
+    if not drone_controller.vehicle:
+        return jsonify({'success': False, 'message': 'Drone not connected'})
+    
+    data = request.json
+    altitude = data.get('altitude')
+    
+    if altitude is None or not isinstance(altitude, (int, float)) or altitude < 0 or altitude > 100:
+        return jsonify({'success': False, 'message': 'Invalid altitude'})
+    
+    try:
+        # Store current mode to revert back later
+        original_mode = drone_controller.vehicle.mode
+        
+        # Ensure the vehicle is armed before changing mode
+        if not drone_controller.vehicle.armed:
+            drone_controller.arm_motors()
+        
+        # Change to ALT_HOLD mode
+        drone_controller.vehicle.mode = VehicleMode("ALT_HOLD")
+        
+        print("Hovering and spinning propellers...")
+        target_altitude = altitude
+        drone_controller.vehicle.simple_takeoff(target_altitude)
+        
+        # Wait for 15 seconds
+        time.sleep(15)
+        
+        print(f"Landing after spinning for {15} seconds.")
+        drone_controller.vehicle.mode = VehicleMode("LAND")
+        
+        return jsonify({
+            'success': True,
+            'message': f'ALT_HOLD mode set for 15 seconds at {altitude} meters'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False, 
+            'message': f'Error setting altitude hold: {str(e)}'
+        })
 
 @socketio.on('start_video')
 def handle_video_stream():

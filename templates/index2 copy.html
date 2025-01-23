@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Drone Ground Control Station</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background: #f0f2f5;
+            color: #1a1a1a;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 1rem;
+            margin-bottom: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .status-bar {
+            display: flex;
+            gap: 20px;
+            font-size: 0.9rem;
+            color: #ecf0f1;
+        }
+
+        .connection-panel {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .connection-panel h2 {
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+
+        .connection-form {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        input {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1rem;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .telemetry {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+
+        .telemetry-item {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 5px;
+            border-left: 4px solid #3498db;
+        }
+
+        .telemetry-label {
+            font-size: 0.8rem;
+            color: #666;
+            margin-bottom: 0.3rem;
+        }
+
+        .telemetry-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .controls {
+            display: grid;
+            gap: 15px;
+        }
+
+        .control-group {
+            background: #f8f9fa;
+            padding: 1rem;
+            border-radius: 5px;
+        }
+
+        .movement-controls {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            margin-top: 1rem;
+        }
+
+        .movement-controls button {
+            background: #2ecc71;
+        }
+
+        .movement-controls button:hover {
+            background: #27ae60;
+        }
+
+        .map-container {
+            height: 400px;
+            margin-top: 2rem;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .video-panel {
+            margin-top: 2rem;
+        }
+
+        .video-feed {
+            width: 100%;
+            height: 400px;
+            background: #000;
+            border-radius: 10px;
+            margin-top: 1rem;
+            overflow: hidden;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-connected {
+            background: #2ecc71;
+        }
+
+        .status-disconnected {
+            background: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Drone Ground Control Station</h1>
+            <div class="status-bar">
+                <div>
+                    <span class="status-indicator" id="connection-status"></span>
+                    Connection Status: <span id="connection-text">Disconnected</span>
+                </div>
+                <div>Flight Mode: <span id="flight-mode">--</span></div>
+                <div>Battery: <span id="battery-level">--</span></div>
+            </div>
+        </div>
+
+        <div class="connection-panel">
+            <h2>Connection Settings</h2>
+            <div class="connection-form">
+                <input type="text" id="hostname" value="raspberrypi.local" placeholder="Hostname">
+                <input type="text" id="username" value="pi" placeholder="Username">
+                <input type="password" id="password" placeholder="Password">
+                <button onclick="connect()">Connect Drone</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="panel">
+                <h2>Telemetry</h2>
+                <div class="telemetry">
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Latitude</div>
+                        <div class="telemetry-value" id="lat">--</div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Longitude</div>
+                        <div class="telemetry-value" id="lon">--</div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Altitude</div>
+                        <div class="telemetry-value" id="alt">--</div>
+                    </div>
+                    <div class="telemetry-item">
+                        <div class="telemetry-label">Ground Speed</div>
+                        <div class="telemetry-value" id="speed">--</div>
+                    </div>
+                </div>
+
+                <div class="map-container">
+                    <div id="map"></div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h2>Controls</h2>
+                <div class="controls">
+                    <div class="control-group">
+                        <h3>System Controls</h3>
+                        <button onclick="armMotors()">Arm Motors</button>
+                        <button onclick="takeoff()">Take Off</button>
+                    </div>
+                    <div class="control-group">
+                        <h3>Movement Controls</h3>
+                        <div class="movement-controls">
+                            <button onclick="move('left')">←</button>
+                            <button onclick="move('forward')">↑</button>
+                            <button onclick="move('right')">→</button>
+                            <button onclick="move('rotate_left')">↶</button>
+                            <button onclick="move('backward')">↓</button>
+                            <button onclick="move('rotate_right')">↷</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="video-panel">
+                    <h3>Video Feed</h3>
+                    <button onclick="startVideo()">Toggle Camera</button>
+                    <div class="video-feed" id="video-feed"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let droneMarker = null;
+        const socket = io();
+        let telemetryInterval;
+
+        function updateConnectionStatus(connected) {
+            const statusIndicator = document.getElementById('connection-status');
+            const statusText = document.getElementById('connection-text');
+            
+            if (connected) {
+                statusIndicator.className = 'status-indicator status-connected';
+                statusText.textContent = 'Connected';
+            } else {
+                statusIndicator.className = 'status-indicator status-disconnected';
+                statusText.textContent = 'Disconnected';
+            }
+        }
+
+        function connect() {
+            const connectionData = {
+                hostname: document.getElementById('hostname').value,
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value
+            };
+
+            fetch('/connect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(connectionData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateConnectionStatus(true);
+                    startTelemetry();
+                } else {
+                    updateConnectionStatus(false);
+                    alert('Connection failed: ' + data.message);
+                }
+            });
+        }
+
+        function startTelemetry() {
+            telemetryInterval = setInterval(() => {
+                fetch('/telemetry')
+                    .then(response => response.json())
+                    .then(data => {
+                        // Update telemetry values
+                        document.getElementById('lat').textContent = data.latitude?.toFixed(6) || '--';
+                        document.getElementById('lon').textContent = data.longitude?.toFixed(6) || '--';
+                        document.getElementById('alt').textContent = data.altitude?.toFixed(2) + ' m' || '--';
+                        document.getElementById('battery-level').textContent = data.battery ? data.battery + '%' : '--';
+                        document.getElementById('flight-mode').textContent = data.mode || '--';
+
+                        // Update map marker
+                        if (data.latitude && data.longitude) {
+                            const position = [data.latitude, data.longitude];
+                            if (!droneMarker) {
+                                droneMarker = L.marker(position).addTo(map);
+                                map.setView(position, 18);
+                            } else {
+                                droneMarker.setLatLng(position);
+                                map.panTo(position);
+                            }
+                        }
+                    });
+            }, 1000);
+        }
+
+        function armMotors() {
+            fetch('/arm', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) alert('Motors armed!');
+                    else alert('Failed to arm motors');
+                });
+        }
+
+        function takeoff() {
+            fetch('/takeoff', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ altitude: 5 })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) alert('Taking off!');
+                else alert('Takeoff failed');
+            });
+        }
+
+        function move(direction) {
+            fetch('/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ direction, speed: 2 })
+            });
+        }
+
+        let videoActive = false;
+        function startVideo() {
+            if (!videoActive) {
+                socket.emit('start_video');
+                videoActive = true;
+            } else {
+                // Add stop video functionality if needed
+                videoActive = false;
+            }
+        }
+
+        socket.on('video_frame', (data) => {
+            const videoFeed = document.getElementById('video-feed');
+            const blob = new Blob([data.frame], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            videoFeed.style.backgroundImage = `url(${url})`;
+        });
+
+        // Initialize with disconnected status
+        updateConnectionStatus(false);
+    </script>
+</body>
+</html>
