@@ -1,0 +1,142 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Drone Ground Station</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .control-panel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .video-feed { width: 640px; height: 480px; background: #000; }
+        .telemetry { background: #f5f5f5; padding: 15px; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Drone Ground Station</h1>
+        
+        <div id="connection-panel">
+            <h2>Connection</h2>
+            <input type="text" id="hostname" value="raspberrypi.local" placeholder="Hostname">
+            <input type="text" id="username" value="pi" placeholder="Username">
+            <input type="password" id="password" placeholder="Password">
+            <button onclick="connect()">Connect</button>
+        </div>
+
+        <div class="control-panel">
+            <div class="telemetry">
+                <h2>Telemetry</h2>
+                <div id="telemetry-data">
+                    <p>Latitude: <span id="lat">--</span></p>
+                    <p>Longitude: <span id="lon">--</span></p>
+                    <p>Altitude: <span id="alt">--</span></p>
+                    <p>Battery: <span id="battery">--</span></p>
+                    <p>Mode: <span id="mode">--</span></p>
+                </div>
+            </div>
+
+            <div class="controls">
+                <h2>Controls</h2>
+                <button onclick="armMotors()">Arm Motors</button>
+                <button onclick="takeoff()">Take Off</button>
+                <div class="movement-controls">
+                    <button onclick="move('forward')">Forward</button>
+                    <button onclick="move('backward')">Backward</button>
+                    <button onclick="move('left')">Left</button>
+                    <button onclick="move('right')">Right</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="video-panel">
+            <h2>Video Feed</h2>
+            <button onclick="startVideo()">Start Video</button>
+            <div class="video-feed" id="video-feed"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let telemetryInterval;
+
+        function connect() {
+            const connectionData = {
+                hostname: document.getElementById('hostname').value,
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value
+            };
+
+            fetch('/connect', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(connectionData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Connected successfully!');
+                    startTelemetry();
+                } else {
+                    alert('Connection failed: ' + data.message);
+                }
+            });
+        }
+
+        function startTelemetry() {
+            telemetryInterval = setInterval(() => {
+                fetch('/telemetry')
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('lat').textContent = data.latitude;
+                        document.getElementById('lon').textContent = data.longitude;
+                        document.getElementById('alt').textContent = data.altitude;
+                        document.getElementById('battery').textContent = data.battery;
+                        document.getElementById('mode').textContent = data.mode;
+                    });
+            }, 1000);
+        }
+
+        function armMotors() {
+            fetch('/arm', { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) alert('Motors armed!');
+                    else alert('Failed to arm motors');
+                });
+        }
+
+        function takeoff() {
+            fetch('/takeoff', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ altitude: 5 })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) alert('Taking off!');
+                else alert('Takeoff failed');
+            });
+        }
+
+        function move(direction) {
+            fetch('/move', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ direction, speed: 2 })
+            });
+        }
+
+        function startVideo() {
+            socket.emit('start_video');
+        }
+
+        socket.on('video_frame', (data) => {
+            const videoFeed = document.getElementById('video-feed');
+            // Convert binary frame data to image
+            const blob = new Blob([data.frame], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            videoFeed.style.backgroundImage = `url(${url})`;
+        });
+    </script>
+</body>
+</html>
