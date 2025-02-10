@@ -28,7 +28,36 @@
 
     <div class="video-panel">
         <h3>Video Feed</h3>
-        <button onclick="startVideo()">Toggle Camera</button>
-        <div class="video-feed" id="video-feed"></div>
+        <button onclick="toggleVideo()">Toggle Camera</button>
     </div>
+    
+    <script>
+        let isStreaming = false;
+    
+        function toggleVideo() {
+            if (!isStreaming) {
+                fetch('/start_video', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert("Video Started!");
+                            isStreaming = true;
+                        } else {
+                            alert("Error: " + data.message);
+                        }
+                    });
+            } else {
+                fetch('/stop_video', { method: 'POST' })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            alert("Video Stopped!");
+                            isStreaming = false;
+                        } else {
+                            alert("Error: " + data.message);
+                        }
+                    });
+            }
+        }
+    </script>    
 </div>

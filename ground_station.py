@@ -1,6 +1,6 @@
-# ground_station.py
 import dronekit_patch
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response
+import subprocess
 from flask_socketio import SocketIO, emit
 import paramiko
 from collections.abc import MutableMapping
@@ -13,9 +13,11 @@ import threading
 import time
 import json
 import socket
+from flask_socketio import SocketIO, emit
 
+gst_process = None
 app = Flask(__name__)
-socketio = SocketIO(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 class DroneController:
     def __init__(self):
@@ -146,27 +148,10 @@ class DroneController:
             print(f"Movement failed: {str(e)}")
             return False
 
-    def start_video_stream(self):
-        """Start video streaming from RPi camera"""
-        if not self.ssh_client:
-            return False
-        try:    
-            stdin, stdout, stderr = self.ssh_client.exec_command('raspivid -t 0 -w 640 -h 480 -fps 25 -b 2000000 -o -')
-            self.video_stream = stdout.read(1024)
-            self.streaming = True
-            return True
-        except Exception as e:
-            print(f"Video streaming failed: {str(e)}")
-            return False
-
 drone_controller = DroneController()
 
 @app.route('/')
 def index():
-    return render_template('index.html')
-
-@app.route('/dashboard')
-def dashboard():
     return render_template('index2.html')
 
 @app.route('/connect', methods=['POST'])
@@ -254,13 +239,49 @@ def set_altitude():
             'message': f'Error setting altitude hold: {str(e)}'
         })
 
-@socketio.on('start_video')
-def handle_video_stream():
-    if drone_controller.start_video_stream():
-        while drone_controller.streaming:
-            if drone_controller.video_stream:
-                emit('video_frame', {'frame': drone_controller.video_stream})
-            time.sleep(0.04)  # 25 FPS
+@app.route('/start_video', methods=['POST'])
+def start_video():
+    """Start the video stream and record it locally."""
+    global gst_process
+
+    if gst_process is not None:
+        return jsonify({'success': False, 'message': 'Video is already running'})
+
+    try:
+        command = [
+            "gst-launch-1.0", "-v",
+            "udpsrc", "port=5005", "caps=application/x-rtp, encoding-name=H264, payload=96",
+            "!", "rtph264depay",
+            "!", "tee", "name=t",
+            "t.", "!", "queue", "!", "avdec_h264", "!", "videoconvert", "!", "autovideosink",
+            "t.", "!", "queue", "!", "h264parse",
+            "!", "splitmuxsink", "location=video_part_%02d.mp4", "max-size-time=30000000000"
+        ]
+
+        # Run GStreamer in a new process
+        gst_process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+        return jsonify({'success': True, 'message': 'Video streaming and recording started'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/stop_video', methods=['POST'])
+def stop_video():
+    """Stop the video stream and recording."""
+    global gst_process
+
+    if gst_process is None:
+        return jsonify({'success': False, 'message': 'No active video stream'})
+
+    try:
+        gst_process.terminate()
+        gst_process.wait()
+        gst_process = None
+        return jsonify({'success': True, 'message': 'Video streaming stopped'})
+
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
